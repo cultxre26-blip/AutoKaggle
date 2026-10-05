@@ -25,4 +25,4 @@ jobs:
     needs: test
     steps:
       - uses: actions/checkout@v4
-      - run: docker build -t pingwatch uptime-monitor
+      - run: docker build -t pingwatch .
