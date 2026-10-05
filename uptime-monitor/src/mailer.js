@@ -1,8 +1,10 @@
 import nodemailer from 'nodemailer';
+import { postWebhook } from './webhook.js';
 
-export function createMailer(smtp, log = console) {
+export function createMailer(smtp, log = console, { allowPrivate = false } = {}) {
+  const webhook = (url, payload) => postWebhook(url, payload, { allowPrivate });
   if (!smtp.host) {
-    return { async send({ to, subject, text }) { log.log(`[mail disabled] to=${to} subject=${subject}\n${text}`); } };
+    return { webhook, async send({ to, subject, text }) { log.log(`[mail disabled] to=${to} subject=${subject}\n${text}`); } };
   }
   const transport = nodemailer.createTransport({
     host: smtp.host,
@@ -11,6 +13,7 @@ export function createMailer(smtp, log = console) {
     auth: smtp.user ? { user: smtp.user, pass: smtp.pass } : undefined,
   });
   return {
+    webhook,
     async send({ to, subject, text }) {
       try {
         await transport.sendMail({ from: smtp.from, to, subject, text });

@@ -13,7 +13,9 @@ import { parseTarget } from './ssrf.js';
 import { rateLimit } from './rateLimit.js';
 import { createMailer } from './mailer.js';
 import { createBilling } from './billing.js';
-import { startScheduler } from './scheduler.js';
+import { startScheduler, applyResult } from './scheduler.js';
+import { checkSite } from './checker.js';
+import { diagnose } from './diagnose.js';
 
 const publicDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'public');
 const DUMMY_HASH = hashPassword('timing-equalizer');
@@ -65,7 +67,7 @@ export function createApp({ config, db, mailer, billing }) {
 
   const publicUser = (u) => {
     const plan = planFor(u);
-    return { email: u.email, plan: u.plan, subscriptionStatus: u.subscription_status, limits: plan, billingEnabled: billing.enabled };
+    return { email: u.email, alertWebhookUrl: u.alert_webhook_url || '', plan: u.plan, subscriptionStatus: u.subscription_status, limits: plan, billingEnabled: billing.enabled };
   };
 
   app.get('/healthz', (req, res) => {
@@ -111,6 +113,17 @@ export function createApp({ config, db, mailer, billing }) {
 
   app.get('/api/me', requireUser, (req, res) => res.json(publicUser(req.user)));
 
+  app.patch('/api/me', requireUser, (req, res) => {
+    const raw = req.body?.alertWebhookUrl;
+    if (typeof raw !== 'string') return res.status(400).json({ error: 'alertWebhookUrl is required (empty string clears it)' });
+    let value = null;
+    if (raw.trim()) {
+      try { value = parseTarget(raw.trim(), config.allowPrivateTargets).toString(); } catch (err) { return res.status(400).json({ error: err.message }); }
+    }
+    db.prepare('UPDATE users SET alert_webhook_url = ? WHERE id = ?').run(value, req.user.id);
+    res.json(publicUser({ ...req.user, alert_webhook_url: value }));
+  });
+
   app.delete('/api/me', requireUser, (req, res) => {
     db.prepare('DELETE FROM users WHERE id = ?').run(req.user.id);
     res.set('Set-Cookie', cookieHeader('', { secure: config.secureCookies, clear: true }));
@@ -119,7 +132,7 @@ export function createApp({ config, db, mailer, billing }) {
 
   const siteView = (s) => ({
     id: s.id, name: s.name, url: s.url, intervalSec: s.interval_sec, slug: s.slug, paused: Boolean(s.paused),
-    status: s.status, lastCheckedAt: s.last_checked_at, sslExpiresAt: s.ssl_expires_at,
+    keyword: s.keyword || '', status: s.status, lastCheckedAt: s.last_checked_at, sslExpiresAt: s.ssl_expires_at,
   });
 
   app.get('/api/sites', requireUser, (req, res) => {
@@ -128,7 +141,8 @@ export function createApp({ config, db, mailer, billing }) {
 
   app.post('/api/sites', requireUser, (req, res) => {
     const plan = planFor(req.user);
-    const { name, url, intervalSec } = req.body || {};
+    const { name, url, intervalSec, keyword } = req.body || {};
+    if (keyword != null && (typeof keyword !== 'string' || keyword.length > 100)) return res.status(400).json({ error: 'Keyword must be text of at most 100 characters' });
     if (typeof name !== 'string' || !name.trim() || name.length > 80) return res.status(400).json({ error: 'Name is required (max 80 characters)' });
     let target;
     try { target = parseTarget(url, config.allowPrivateTargets); } catch (err) { return res.status(400).json({ error: err.message }); }
@@ -139,8 +153,8 @@ export function createApp({ config, db, mailer, billing }) {
       return res.status(400).json({ error: `Check interval must be between ${plan.minIntervalSec} and 3600 seconds on your plan` });
     }
     const slug = randomBytes(9).toString('base64url');
-    const { lastInsertRowid } = db.prepare('INSERT INTO sites (user_id, name, url, interval_sec, slug, created_at) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(req.user.id, name.trim(), target.toString(), interval, slug, Date.now());
+    const { lastInsertRowid } = db.prepare('INSERT INTO sites (user_id, name, url, interval_sec, slug, keyword, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(req.user.id, name.trim(), target.toString(), interval, slug, (keyword || '').trim() || null, Date.now());
     res.status(201).json(siteView(db.prepare('SELECT * FROM sites WHERE id = ?').get(lastInsertRowid)));
   });
 
@@ -160,9 +174,26 @@ export function createApp({ config, db, mailer, billing }) {
   app.get('/api/sites/:id/checks', requireUser, (req, res) => {
     const site = db.prepare('SELECT id FROM sites WHERE id = ? AND user_id = ?').get(Number(req.params.id), req.user.id);
     if (!site) return res.status(404).json({ error: 'Site not found' });
-    const checks = db.prepare('SELECT checked_at, ok, status_code, response_ms, error FROM checks WHERE site_id = ? ORDER BY checked_at DESC LIMIT 100').all(site.id);
-    const incidents = db.prepare('SELECT started_at, resolved_at, reason FROM incidents WHERE site_id = ? ORDER BY started_at DESC LIMIT 20').all(site.id);
-    res.json({ checks, incidents });
+    const checks = db.prepare('SELECT checked_at, ok, status_code, response_ms, error FROM checks WHERE site_id = ? ORDER BY checked_at DESC LIMIT 100').all(site.id)
+      .map((c) => ({ ...c, diagnosis: c.ok ? null : diagnose(c.error) }));
+    const incidents = db.prepare('SELECT started_at, resolved_at, reason FROM incidents WHERE site_id = ? ORDER BY started_at DESC LIMIT 20').all(site.id)
+      .map((i) => ({ ...i, diagnosis: diagnose(i.reason), durationMs: (i.resolved_at ?? Date.now()) - i.started_at }));
+    const ms = checks.filter((c) => c.ok && c.response_ms != null).map((c) => c.response_ms).sort((a, b) => a - b);
+    const stats = ms.length ? { avgMs: Math.round(ms.reduce((a, b) => a + b, 0) / ms.length), p95Ms: ms[Math.min(ms.length - 1, Math.floor(ms.length * 0.95))] } : null;
+    res.json({ checks, incidents, stats });
+  });
+
+  // Manual re-check: lets a user confirm a fix without waiting for the next scheduled run.
+  app.post('/api/sites/:id/check', requireUser, async (req, res) => {
+    const site = db.prepare(
+      `SELECT s.*, u.email AS owner_email, u.alert_webhook_url AS owner_webhook FROM sites s JOIN users u ON u.id = s.user_id WHERE s.id = ? AND s.user_id = ?`,
+    ).get(Number(req.params.id), req.user.id);
+    if (!site) return res.status(404).json({ error: 'Site not found' });
+    const now = Date.now();
+    if (site.last_checked_at && now - site.last_checked_at < 10_000) return res.status(429).json({ error: 'Checked a moment ago, wait a few seconds' });
+    const result = await checkSite(site.url, { allowPrivate: config.allowPrivateTargets, keyword: site.keyword });
+    await applyResult(db, mailer, site, result, Date.now());
+    res.json({ ok: result.ok, statusCode: result.statusCode ?? null, responseMs: result.responseMs, diagnosis: result.ok ? null : diagnose(result.error) });
   });
 
   // Public status data: unguessable slug, no URL or owner details exposed.
@@ -198,7 +229,7 @@ export function createApp({ config, db, mailer, billing }) {
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const config = loadConfig();
   const db = openDb(config.databasePath);
-  const mailer = createMailer(config.smtp);
+  const mailer = createMailer(config.smtp, console, { allowPrivate: config.allowPrivateTargets });
   const billing = createBilling(config, db);
   const app = createApp({ config, db, mailer, billing });
   const stopScheduler = startScheduler(db, mailer, config);

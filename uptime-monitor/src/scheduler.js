@@ -1,5 +1,6 @@
 import { checkSite } from './checker.js';
 import { planFor } from './plans.js';
+import { diagnose } from './diagnose.js';
 
 const FAILURES_BEFORE_DOWN = 2;
 const SSL_THRESHOLDS = [3, 7, 14]; // days, most urgent first
@@ -11,7 +12,7 @@ const DAY_MS = 24 * 3600 * 1000;
 // (extra sites beyond the plan limit and sub-minimum intervals) without deleting data.
 export function dueSites(db, now) {
   const rows = db.prepare(
-    `SELECT s.*, u.email AS owner_email, u.plan AS owner_plan, u.subscription_status
+    `SELECT s.*, u.email AS owner_email, u.alert_webhook_url AS owner_webhook, u.plan AS owner_plan, u.subscription_status
      FROM sites s JOIN users u ON u.id = s.user_id
      WHERE s.paused = 0 ORDER BY s.user_id, s.id`,
   ).all();
@@ -33,17 +34,22 @@ export async function applyResult(db, mailer, site, result, now) {
   let status = site.status;
   let failures = result.ok ? 0 : site.consecutive_failures + 1;
   const mails = [];
+  const diagnosis = result.ok ? null : diagnose(result.error);
 
   if (result.ok) {
     if (site.status === 'down') {
       db.prepare('UPDATE incidents SET resolved_at = ? WHERE site_id = ? AND resolved_at IS NULL').run(now, site.id);
-      mails.push({ subject: `[Recovered] ${site.name} is back up`, text: `${site.name} (${site.url}) is responding again.` });
+      mails.push({ event: 'recovered', subject: `[Recovered] ${site.name} is back up`, text: `${site.name} (${site.url}) is responding again.` });
     }
     status = 'up';
   } else if (failures >= FAILURES_BEFORE_DOWN && site.status !== 'down') {
     status = 'down';
-    db.prepare('INSERT INTO incidents (site_id, started_at, reason) VALUES (?, ?, ?)').run(site.id, now, result.error);
-    mails.push({ subject: `[Down] ${site.name} is not responding`, text: `${site.name} (${site.url}) failed ${failures} checks in a row.\nReason: ${result.error}` });
+    db.prepare('INSERT INTO incidents (site_id, started_at, reason, diagnosis_code) VALUES (?, ?, ?, ?)').run(site.id, now, result.error, diagnosis.code);
+    mails.push({
+      event: 'down',
+      subject: `[Down] ${site.name}: ${diagnosis.title}`,
+      text: `${site.name} (${site.url}) failed ${failures} checks in a row.\n\nLikely cause: ${diagnosis.title}\nWhat to try: ${diagnosis.fix}\n\nTechnical detail: ${result.error}`,
+    });
   }
 
   let sslAlertLevel = site.ssl_alert_level;
@@ -54,6 +60,7 @@ export async function applyResult(db, mailer, site, result, now) {
     else if (sslAlertLevel === 0 || level < sslAlertLevel) {
       sslAlertLevel = level;
       mails.push({
+        event: 'ssl_expiring',
         subject: `[SSL] Certificate for ${site.name} expires in ${Math.max(daysLeft, 0)} days`,
         text: `The TLS certificate for ${site.url} expires on ${new Date(result.sslExpiresAt).toUTCString()}.`,
       });
@@ -65,7 +72,14 @@ export async function applyResult(db, mailer, site, result, now) {
      ssl_expires_at = COALESCE(?, ssl_expires_at), ssl_alert_level = ? WHERE id = ?`,
   ).run(status, failures, now, result.sslExpiresAt ?? null, sslAlertLevel, site.id);
 
-  for (const m of mails) await mailer.send({ to: site.owner_email, ...m });
+  for (const m of mails) {
+    await mailer.send({ to: site.owner_email, subject: m.subject, text: m.text });
+    if (site.owner_webhook && mailer.webhook) {
+      await mailer.webhook(site.owner_webhook, {
+        text: `${m.subject}\n${m.text}`, event: m.event, site: site.name, url: site.url, diagnosis: m.event === 'down' ? diagnosis : undefined,
+      });
+    }
+  }
 }
 
 export async function runDueChecks(db, mailer, config, now = Date.now(), check = checkSite) {
@@ -75,7 +89,7 @@ export async function runDueChecks(db, mailer, config, now = Date.now(), check =
     while (index < queue.length) {
       const site = queue[index++];
       try {
-        const result = await check(site.url, { allowPrivate: config.allowPrivateTargets });
+        const result = await check(site.url, { allowPrivate: config.allowPrivateTargets, keyword: site.keyword });
         await applyResult(db, mailer, site, result, now);
       } catch (err) {
         console.error(`check failed for site ${site.id}: ${err.message}`);

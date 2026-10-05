@@ -57,10 +57,24 @@ CREATE TABLE IF NOT EXISTS webhook_events (
 );
 `;
 
+const COLUMNS = [
+  ['sites', 'keyword', 'TEXT'],
+  ['users', 'alert_webhook_url', 'TEXT'],
+  ['incidents', 'diagnosis_code', 'TEXT'],
+];
+
+function addMissingColumns(db) {
+  for (const [table, column, type] of COLUMNS) {
+    const has = db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === column);
+    if (!has) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+  }
+}
+
 export function openDb(path) {
   if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
   const db = new DatabaseSync(path);
   db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
   db.exec(SCHEMA);
+  addMissingColumns(db);
   return db;
 }

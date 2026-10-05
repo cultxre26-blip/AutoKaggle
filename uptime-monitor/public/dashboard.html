@@ -4,7 +4,9 @@
 <div class="card" id="planBox"></div>
 <div class="card"><h3>Add a site</h3><form id="addForm"><label>Name<input name="name" required maxlength="80"></label>
 <label>URL<input name="url" type="url" placeholder="https://example.com" required></label>
+<label>Expected text on the page (optional — alerts you if the page loads but this text is missing)<input name="keyword" maxlength="100"></label>
 <p class="err" id="addErr"></p><button type="submit">Add site</button></form></div>
+<div class="card"><h3>Alert webhook</h3><p class="muted">Also send alerts to Slack, Discord or any URL that accepts JSON.</p><form id="hookForm"><input name="alertWebhookUrl" type="url" placeholder="https://hooks.slack.com/services/..."><p class="err" id="hookErr"></p><button type="submit" class="secondary">Save webhook</button></form></div>
 <div id="sites"></div>
 <p><button class="danger" id="deleteAcct">Delete my account</button></p>
 </main><script src="/app.js"></script><script src="/dashboard.js"></script></body></html>

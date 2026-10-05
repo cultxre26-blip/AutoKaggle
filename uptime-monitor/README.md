@@ -6,6 +6,11 @@ A small uptime and SSL-expiry monitor sold as a monthly subscription. Node 22, E
 - Sign up and sign in (scrypt password hashes, hashed server-side session tokens, HttpOnly SameSite cookies).
 - Monitor URLs on a schedule. A site is marked down after 2 consecutive failures, then one alert email is sent; a recovery email follows.
 - SSL certificate expiry warnings at 14, 7 and 3 days, re-armed after renewal.
+- Failure diagnosis: every failure is mapped to a plain-English cause and a suggested fix (DNS, refused, timeout, expired or untrusted certificate, 5xx, 404, blocked, missing content). It appears in alert emails, check results and the incident list.
+- Keyword checks: optionally require text on the page, so a site that returns 200 but shows an error page still counts as down.
+- Webhook alerts (Slack/Discord-compatible JSON) in addition to email, with the same SSRF protection as the checker.
+- "Check now" button to confirm a fix without waiting, throttled to once per 10 seconds per site.
+- Incident timeline with duration, resolution time, and response-time average and p95.
 - Public status page per site at an unguessable URL, with 30-day uptime.
 - Plans: Free (1 site, 5 min), Pro $9 (10 sites, 1 min), Team $29 (50 sites, 1 min). Prices are set in Stripe; the figures shown on the landing page live in `src/plans.js`.
 - Stripe Checkout, customer portal, and an idempotent signed webhook. Lapsed subscriptions stop using paid capacity without deleting data.

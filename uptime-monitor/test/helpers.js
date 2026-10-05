@@ -8,9 +8,10 @@ export function makeCtx(env = {}) {
   const config = loadConfig({ APP_URL: 'http://localhost:3000', ALLOW_PRIVATE_TARGETS: '1', STRIPE_PRICE_PRO: 'price_pro', STRIPE_PRICE_TEAM: 'price_team', ...env });
   const db = openDb(':memory:');
   const sent = [];
-  const mailer = { async send(m) { sent.push(m); } };
+  const hooks = [];
+  const mailer = { async send(m) { sent.push(m); }, async webhook(url, payload) { hooks.push({ url, payload }); return true; } };
   const billing = createBilling(config, db);
-  return { config, db, mailer, billing, sent, app: createApp({ config, db, mailer, billing }) };
+  return { config, db, mailer, billing, sent, hooks, app: createApp({ config, db, mailer, billing }) };
 }
 
 export async function listen(app) {
