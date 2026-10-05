@@ -1,9 +1,9 @@
 import Stripe from 'stripe';
 import { PLANS } from './plans.js';
 
-export function createBilling(config, db) {
+export function createBilling(config, db, stripeOptions = {}) {
   const enabled = Boolean(config.stripe.secretKey);
-  const stripe = enabled ? new Stripe(config.stripe.secretKey) : null;
+  const stripe = enabled ? new Stripe(config.stripe.secretKey, stripeOptions) : null;
   const priceToPlan = Object.fromEntries(
     Object.entries(config.stripe.prices).filter(([, id]) => id).map(([plan, id]) => [id, plan]),
   );

@@ -102,7 +102,7 @@ export function createApp({ config, db, mailer, billing, verifyCaptcha = default
     res.json({ ok: true });
   });
 
-  app.get('/api/config', (req, res) => res.json({ captchaSiteKey: turnstile ? config.turnstile.siteKey : '' }));
+  app.get('/api/config', (req, res) => res.json({ captchaSiteKey: turnstile ? config.turnstile.siteKey : '', companyName: config.companyName || 'the operator of this service', supportEmail: config.supportEmail }));
 
   app.get('/api/plans', (req, res) => res.json(PLANS));
 

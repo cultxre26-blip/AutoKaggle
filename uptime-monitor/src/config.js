@@ -5,6 +5,8 @@ export function loadConfig(env = process.env) {
     throw new Error('SESSION_SECRET must be set in production');
   }
   const config = {
+    companyName: env.COMPANY_NAME || '',
+    supportEmail: env.SUPPORT_EMAIL || '',
     trustProxy: Number(env.TRUST_PROXY ?? 1),
     port: Number(env.PORT || 3000),
     appUrl,
@@ -38,6 +40,7 @@ function validateProduction(c) {
     if (!c.stripe.webhookSecret) problems.push('STRIPE_WEBHOOK_SECRET is required when STRIPE_SECRET_KEY is set');
     if (!c.stripe.prices.pro || !c.stripe.prices.team) problems.push('STRIPE_PRICE_PRO and STRIPE_PRICE_TEAM are required when billing is enabled');
   }
+  if (!c.companyName || !c.supportEmail) problems.push('COMPANY_NAME and SUPPORT_EMAIL are required: they appear in the terms and privacy pages');
   if (!c.smtp.host) problems.push('SMTP_HOST is required: verification, reset and alert emails cannot be delivered without it');
   if (Boolean(c.turnstile.siteKey) !== Boolean(c.turnstile.secret)) problems.push('Set both TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY, or neither');
   if (problems.length) throw new Error(`Invalid production configuration:\n - ${problems.join('\n - ')}`);

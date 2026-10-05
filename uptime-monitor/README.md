@@ -33,8 +33,8 @@ The supported production setup is `docker-compose.yml`: the app, Caddy (automati
 2. Stripe: create recurring Pro and Team prices, set `STRIPE_PRICE_PRO` and `STRIPE_PRICE_TEAM`, add a webhook endpoint at `https://<domain>/api/stripe/webhook` for `customer.subscription.created`, `.updated` and `.deleted`, and set `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`. Enable the customer portal in the Stripe dashboard.
 3. Optional: set `TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY` to add a Cloudflare human check on signup.
 4. `docker compose --env-file .env up -d --build`. In production the app refuses to start on an unsafe configuration (non-https URL, default secret, missing SMTP, half-configured Stripe or Turnstile, SSRF protection disabled).
-5. Replace `public/terms.html` and `public/privacy.html` with lawyer-reviewed text.
-6. Do a restore drill once: copy a file from the `backups` volume to `DATABASE_PATH` on a scratch instance and sign in.
+5. Set `COMPANY_NAME` and `SUPPORT_EMAIL` (required in production). The terms and privacy pages are drafts that describe what the app really collects; have a lawyer review them for your jurisdiction before taking payments.
+6. Restore drill (already rehearsed in development): copy a file from the `backups` volume to `DATABASE_PATH` on a scratch instance and sign in.
 
 Operations:
 - Run exactly one app instance; the scheduler runs in-process. Compose pins `replicas: 1`.
@@ -44,6 +44,8 @@ Operations:
 - Expired sessions, tokens and webhook records are pruned daily; check history is kept 30 days.
 - Users can download all their data at `GET /api/me/export` and delete their account from the dashboard.
 - CI (`.github/workflows/pingwatch.yml`) runs the tests, `npm audit` and a Docker build on every push.
+
+How it was verified: the test suite runs the real Stripe SDK against a local fake Stripe API (checkout, portal, signed webhooks with raw-body handling, replays) and real SMTP delivery against a local SMTP server. The Docker image, the compose app and backup services, a backup-and-restore drill and the Caddyfile were run and validated locally. Not exercised: a live Stripe account, a real mail provider, and Let's Encrypt issuance, which need your credentials and domain.
 
 Known limits: SQLite on one node is the scaling ceiling (fine for hundreds of users and thousands of monitors; move to Postgres beyond that), checks run from a single location, and alerts are email and webhook only (no SMS).
 

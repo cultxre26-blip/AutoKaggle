@@ -11,7 +11,7 @@ import { createBilling } from '../src/billing.js';
 import { pruneExpired, schedulerHealthy } from '../src/scheduler.js';
 import { makeCtx, listen, client } from './helpers.js';
 
-const good = { NODE_ENV: 'production', SESSION_SECRET: 'x'.repeat(40), APP_URL: 'https://pw.example.com', SMTP_HOST: 'smtp.example.com' };
+const good = { NODE_ENV: 'production', SESSION_SECRET: 'x'.repeat(40), APP_URL: 'https://pw.example.com', SMTP_HOST: 'smtp.example.com', COMPANY_NAME: 'Example Ltd', SUPPORT_EMAIL: 'support@example.com' };
 
 test('production config validation rejects unsafe or half-configured deploys', () => {
   assert.doesNotThrow(() => loadConfig(good));
@@ -19,6 +19,7 @@ test('production config validation rejects unsafe or half-configured deploys', (
   assert.throws(() => loadConfig({ ...good, APP_URL: 'http://pw.example.com' }), /https/);
   assert.throws(() => loadConfig({ ...good, ALLOW_PRIVATE_TARGETS: '1' }), /SSRF/);
   assert.throws(() => loadConfig({ ...good, SMTP_HOST: '' }), /SMTP_HOST/);
+  assert.throws(() => loadConfig({ ...good, COMPANY_NAME: '' }), /COMPANY_NAME/);
   assert.throws(() => loadConfig({ ...good, STRIPE_SECRET_KEY: 'sk_x' }), /STRIPE_WEBHOOK_SECRET/);
   assert.throws(() => loadConfig({ ...good, TURNSTILE_SITE_KEY: 'k' }), /TURNSTILE/);
   assert.doesNotThrow(() => loadConfig({ ...good, STRIPE_SECRET_KEY: 'sk_x', STRIPE_WEBHOOK_SECRET: 'whsec', STRIPE_PRICE_PRO: 'p1', STRIPE_PRICE_TEAM: 'p2' }));

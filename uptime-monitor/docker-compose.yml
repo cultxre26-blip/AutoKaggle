@@ -3,6 +3,7 @@
 services:
   app:
     build: .
+    image: pingwatch:latest
     restart: unless-stopped
     env_file: .env
     environment:
@@ -25,7 +26,8 @@ services:
       - caddy_data:/data
 
   backup:
-    build: .
+    image: pingwatch:latest
+    depends_on: [app]
     restart: unless-stopped
     environment:
       DATABASE_PATH: /data/pingwatch.db
@@ -33,7 +35,10 @@ services:
       - data:/data:ro
       - backups:/backups
     user: root
-    entrypoint: ["sh", "-c", "while true; do node --disable-warning=ExperimentalWarning scripts/backup.js /backups 14 || true; sleep 86400; done"]
+    healthcheck:
+      disable: true
+    # Retry every minute until the database exists and a backup succeeds, then once a day.
+    entrypoint: ["sh", "-c", "while true; do if node --disable-warning=ExperimentalWarning scripts/backup.js /backups 14; then sleep 86400; else sleep 60; fi; done"]
 
 volumes:
   data:

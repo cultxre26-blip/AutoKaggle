@@ -16,5 +16,8 @@
     "express": "^4.21.2",
     "nodemailer": "^10.0.15",
     "stripe": "^17.5.0"
+  },
+  "devDependencies": {
+    "smtp-server": "^3.19.17"
   }
 }
