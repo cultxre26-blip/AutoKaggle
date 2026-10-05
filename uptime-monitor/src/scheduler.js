@@ -1,6 +1,7 @@
 import { checkSite } from './checker.js';
 import { planFor } from './plans.js';
 import { diagnose } from './diagnose.js';
+import { log } from './log.js';
 
 const FAILURES_BEFORE_DOWN = 2;
 const SSL_THRESHOLDS = [3, 7, 14]; // days, most urgent first
@@ -92,7 +93,7 @@ export async function runDueChecks(db, mailer, config, now = Date.now(), check =
         const result = await check(site.url, { allowPrivate: config.allowPrivateTargets, keyword: site.keyword });
         await applyResult(db, mailer, site, result, now);
       } catch (err) {
-        console.error(`check failed for site ${site.id}: ${err.message}`);
+        log.error('check failed', { siteId: site.id, error: err.message });
       }
     }
   };
@@ -100,19 +101,32 @@ export async function runDueChecks(db, mailer, config, now = Date.now(), check =
   return queue.length;
 }
 
-export function pruneOldChecks(db, now = Date.now()) {
+export function pruneExpired(db, now = Date.now()) {
   db.prepare('DELETE FROM checks WHERE checked_at < ?').run(now - RETENTION_MS);
+  db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(now);
+  db.prepare('DELETE FROM tokens WHERE expires_at < ?').run(now);
+  db.prepare('DELETE FROM webhook_events WHERE received_at < ?').run(now - RETENTION_MS);
+}
+
+// Read by /healthz: unhealthy if the timer stopped firing or one batch has been running for too long.
+export const heartbeat = { lastTick: null, runStartedAt: null };
+export function schedulerHealthy(now = Date.now(), hb = heartbeat) {
+  if (hb.lastTick === null) return true; // scheduler not started (tests, or still booting)
+  return now - hb.lastTick < 120_000 && (hb.runStartedAt === null || now - hb.runStartedAt < 600_000);
 }
 
 export function startScheduler(db, mailer, config) {
   let running = false;
   const tick = async () => {
+    heartbeat.lastTick = Date.now();
     if (running) return;
     running = true;
-    try { await runDueChecks(db, mailer, config); } finally { running = false; }
+    heartbeat.runStartedAt = Date.now();
+    try { await runDueChecks(db, mailer, config); } catch (err) { log.error('scheduler tick failed', { error: err.message }); } finally { running = false; heartbeat.runStartedAt = null; }
   };
   const t1 = setInterval(tick, 15_000);
-  const t2 = setInterval(() => pruneOldChecks(db), DAY_MS);
+  const t2 = setInterval(() => pruneExpired(db), DAY_MS);
+  pruneExpired(db);
   tick();
   return () => { clearInterval(t1); clearInterval(t2); };
 }

@@ -26,21 +26,29 @@ npm test
 ```
 Without `STRIPE_SECRET_KEY` billing is disabled; without `SMTP_HOST` alerts are printed to stdout.
 
-## Going live checklist
-1. Set `NODE_ENV=production`, a random `SESSION_SECRET`, and `APP_URL` to your https URL (the server refuses to start in production with the default secret).
-2. Stripe: create Pro and Team recurring prices, set `STRIPE_PRICE_PRO`/`STRIPE_PRICE_TEAM`, and point a webhook at `/api/stripe/webhook` for `customer.subscription.created|updated|deleted`; set `STRIPE_WEBHOOK_SECRET`. Enable the customer portal in the Stripe dashboard.
-3. SMTP: set the `SMTP_*` variables and a verified `MAIL_FROM` domain (SPF/DKIM).
-4. Put it behind HTTPS (a reverse proxy or platform TLS). The app trusts one proxy hop for client IPs.
-5. Mount a persistent volume for `DATABASE_PATH` and back it up (SQLite, WAL mode). Run a single instance; the scheduler runs in-process.
-6. Replace `public/terms.html` and `public/privacy.html` with lawyer-reviewed text.
-7. Not included yet: per-account API rate limiting beyond sign-in and a CAPTCHA on signup. Add these before heavy public traffic.
+## Going live
+The supported production setup is `docker-compose.yml`: the app, Caddy (automatic HTTPS via Let's Encrypt) and a daily backup job.
+
+1. Point a DNS record at your server and copy `.env.example` to `.env`. Set `DOMAIN`, `APP_URL=https://<domain>`, a random `SESSION_SECRET`, SMTP details with a verified `MAIL_FROM` domain (SPF/DKIM), and the Stripe values below.
+2. Stripe: create recurring Pro and Team prices, set `STRIPE_PRICE_PRO` and `STRIPE_PRICE_TEAM`, add a webhook endpoint at `https://<domain>/api/stripe/webhook` for `customer.subscription.created`, `.updated` and `.deleted`, and set `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`. Enable the customer portal in the Stripe dashboard.
+3. Optional: set `TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY` to add a Cloudflare human check on signup.
+4. `docker compose --env-file .env up -d --build`. In production the app refuses to start on an unsafe configuration (non-https URL, default secret, missing SMTP, half-configured Stripe or Turnstile, SSRF protection disabled).
+5. Replace `public/terms.html` and `public/privacy.html` with lawyer-reviewed text.
+6. Do a restore drill once: copy a file from the `backups` volume to `DATABASE_PATH` on a scratch instance and sign in.
+
+Operations:
+- Run exactly one app instance; the scheduler runs in-process. Compose pins `replicas: 1`.
+- `/healthz` returns 503 if the database is unreachable or the scheduler has stopped, so point a container health check or an external monitor (PingWatch itself works) at it.
+- Logs are one JSON object per line on stdout/stderr. Request logs contain method, path, status and timing only (no query strings, cookies or tokens).
+- Backups: `npm run backup` (or the compose `backup` service) writes an integrity-checked copy with `VACUUM INTO` and keeps the newest 14. Copy that volume off the host.
+- Expired sessions, tokens and webhook records are pruned daily; check history is kept 30 days.
+- Users can download all their data at `GET /api/me/export` and delete their account from the dashboard.
+- CI (`.github/workflows/pingwatch.yml`) runs the tests, `npm audit` and a Docker build on every push.
+
+Known limits: SQLite on one node is the scaling ceiling (fine for hundreds of users and thousands of monitors; move to Postgres beyond that), checks run from a single location, and alerts are email and webhook only (no SMS).
 
 ## Security notes
 - Monitored URLs are validated and DNS is resolved through a guard that rejects private, loopback and link-local addresses (SSRF and DNS-rebinding protection). Redirects are not followed. `ALLOW_PRIVATE_TARGETS=1` disables this and is for local testing only.
 - State-changing API calls require same-origin JSON.
-- Strict CSP, no inline scripts, UI built with `textContent` (no HTML injection).
+- HSTS on https deployments, strict CSP, no inline scripts, UI built with `textContent` (no HTML injection).
 
-## Docker
-```bash
-docker build -t pingwatch . && docker run -p 3000:3000 -v pingwatch-data:/data --env-file .env pingwatch
-```

@@ -13,24 +13,44 @@ import { parseTarget } from './ssrf.js';
 import { rateLimit } from './rateLimit.js';
 import { createMailer } from './mailer.js';
 import { createBilling } from './billing.js';
-import { startScheduler, applyResult } from './scheduler.js';
+import { startScheduler, applyResult, schedulerHealthy } from './scheduler.js';
+import { log } from './log.js';
+import { randomUUID } from 'node:crypto';
 import { checkSite } from './checker.js';
 import { diagnose } from './diagnose.js';
 
 const publicDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'public');
 const DUMMY_HASH = hashPassword('timing-equalizer');
 
-export function createApp({ config, db, mailer, billing }) {
+export function createApp({ config, db, mailer, billing, verifyCaptcha = defaultVerifyCaptcha(config) }) {
   const app = express();
   app.disable('x-powered-by');
-  app.set('trust proxy', 1);
+  app.set('trust proxy', config.trustProxy);
+
+  const turnstile = config.turnstile.siteKey && config.turnstile.secret;
+  const csp = ["default-src 'self'", "style-src 'self' 'unsafe-inline'", `script-src 'self'${turnstile ? ' https://challenges.cloudflare.com' : ''}`,
+    "img-src 'self' data:", `frame-src ${turnstile ? 'https://challenges.cloudflare.com' : "'none'"}`, `connect-src 'self'`, "frame-ancestors 'none'"].join('; ');
 
   app.use((req, res, next) => {
     res.set({
       'X-Content-Type-Options': 'nosniff',
       'X-Frame-Options': 'DENY',
       'Referrer-Policy': 'same-origin',
-      'Content-Security-Policy': "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; frame-ancestors 'none'",
+      'Content-Security-Policy': csp,
+      ...(config.secureCookies ? { 'Strict-Transport-Security': 'max-age=31536000; includeSubDomains' } : {}),
+      'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+    });
+    next();
+  });
+
+  // Request log: method, path (no query string, which can hold one-time tokens), status and timing only.
+  app.use((req, res, next) => {
+    const started = Date.now();
+    const id = randomUUID();
+    res.set('X-Request-Id', id);
+    res.on('finish', () => {
+      if (req.path === '/healthz') return;
+      log.info('request', { id, method: req.method, path: req.path, status: res.statusCode, ms: Date.now() - started });
     });
     next();
   });
@@ -55,6 +75,8 @@ export function createApp({ config, db, mailer, billing }) {
     next();
   });
 
+  app.use('/api', rateLimit({ windowMs: 60 * 1000, max: 300 }));
+
   const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 30 });
 
   const sessionToken = (req) => parseCookies(req.get('cookie'))[COOKIE];
@@ -71,9 +93,16 @@ export function createApp({ config, db, mailer, billing }) {
   };
 
   app.get('/healthz', (req, res) => {
-    db.prepare('SELECT 1').get();
+    try {
+      db.prepare('SELECT 1').get();
+    } catch {
+      return res.status(503).json({ ok: false, reason: 'database' });
+    }
+    if (!schedulerHealthy()) return res.status(503).json({ ok: false, reason: 'scheduler' });
     res.json({ ok: true });
   });
+
+  app.get('/api/config', (req, res) => res.json({ captchaSiteKey: turnstile ? config.turnstile.siteKey : '' }));
 
   app.get('/api/plans', (req, res) => res.json(PLANS));
 
@@ -83,8 +112,11 @@ export function createApp({ config, db, mailer, billing }) {
     text: `Confirm your email to start monitoring sites:\n\n${config.appUrl}/verify.html?token=${createToken(db, userId, 'verify')}\n\nThis link expires in 24 hours. If you did not sign up, ignore this email.`,
   });
 
-  app.post('/api/signup', authLimiter, (req, res) => {
+  app.post('/api/signup', authLimiter, async (req, res) => {
     const { email, password } = req.body || {};
+    if (turnstile && !(await verifyCaptcha(req.body?.captchaToken, req.ip))) {
+      return res.status(400).json({ error: 'Please complete the human check and try again' });
+    }
     if (!validEmail(email)) return res.status(400).json({ error: 'Enter a valid email address' });
     if (typeof password !== 'string' || password.length < 10 || password.length > 200) {
       return res.status(400).json({ error: 'Password must be 10 to 200 characters' });
@@ -168,6 +200,24 @@ export function createApp({ config, db, mailer, billing }) {
     }
     db.prepare('UPDATE users SET alert_webhook_url = ? WHERE id = ?').run(value, req.user.id);
     res.json(publicUser({ ...req.user, alert_webhook_url: value }));
+  });
+
+  // GDPR-style export of everything held about the account.
+  app.get('/api/me/export', requireUser, (req, res) => {
+    const u = req.user;
+    const sites = db.prepare('SELECT id, name, url, keyword, interval_sec, slug, paused, created_at FROM sites WHERE user_id = ?').all(u.id);
+    const since = Date.now() - 30 * 24 * 3600 * 1000;
+    const data = {
+      exportedAt: new Date().toISOString(),
+      account: { email: u.email, plan: u.plan, subscriptionStatus: u.subscription_status, emailVerified: Boolean(u.email_verified), alertWebhookUrl: u.alert_webhook_url, createdAt: u.created_at },
+      sites: sites.map((site) => ({
+        ...site,
+        incidents: db.prepare('SELECT started_at, resolved_at, reason FROM incidents WHERE site_id = ?').all(site.id),
+        checks: db.prepare('SELECT checked_at, ok, status_code, response_ms, error FROM checks WHERE site_id = ? AND checked_at >= ?').all(site.id, since),
+      })),
+    };
+    res.set('Content-Disposition', 'attachment; filename="pingwatch-export.json"');
+    res.json(data);
   });
 
   app.delete('/api/me', requireUser, (req, res) => {
@@ -266,7 +316,7 @@ export function createApp({ config, db, mailer, billing }) {
 
   app.use((err, req, res, next) => {
     if (err.type === 'entity.parse.failed') return res.status(400).json({ error: 'Invalid JSON' });
-    console.error(err);
+    log.error('unhandled error', { path: req.path, error: err.message });
     res.status(500).json({ error: 'Internal error' });
   });
 
@@ -276,12 +326,30 @@ export function createApp({ config, db, mailer, billing }) {
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const config = loadConfig();
   const db = openDb(config.databasePath);
-  const mailer = createMailer(config.smtp, console, { allowPrivate: config.allowPrivateTargets });
+  const mailer = createMailer(config.smtp, undefined, { allowPrivate: config.allowPrivateTargets });
   const billing = createBilling(config, db);
   const app = createApp({ config, db, mailer, billing });
   const stopScheduler = startScheduler(db, mailer, config);
-  const server = app.listen(config.port, () => console.log(`PingWatch listening on ${config.port}`));
+  const server = app.listen(config.port, () => log.info('listening', { port: config.port }));
   const shutdown = () => { stopScheduler(); server.close(() => { db.close(); process.exit(0); }); };
+  process.on('unhandledRejection', (err) => { log.error('unhandled rejection', { error: String(err) }); });
+  process.on('uncaughtException', (err) => { log.error('uncaught exception', { error: err.message }); process.exit(1); });
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
+}
+
+function defaultVerifyCaptcha(config) {
+  return async (token, ip) => {
+    if (typeof token !== 'string' || !token) return false;
+    try {
+      const res = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+        method: 'POST',
+        body: new URLSearchParams({ secret: config.turnstile.secret, response: token, remoteip: ip || '' }),
+        signal: AbortSignal.timeout(5000),
+      });
+      return (await res.json()).success === true;
+    } catch {
+      return false; // fail closed
+    }
+  };
 }

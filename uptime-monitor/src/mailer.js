@@ -1,10 +1,11 @@
 import nodemailer from 'nodemailer';
 import { postWebhook } from './webhook.js';
+import { log as defaultLog } from './log.js';
 
-export function createMailer(smtp, log = console, { allowPrivate = false } = {}) {
+export function createMailer(smtp, log = defaultLog, { allowPrivate = false } = {}) {
   const webhook = (url, payload) => postWebhook(url, payload, { allowPrivate });
   if (!smtp.host) {
-    return { webhook, async send({ to, subject, text }) { log.log(`[mail disabled] to=${to} subject=${subject}\n${text}`); } };
+    return { webhook, async send({ to, subject, text }) { console.log(`[mail disabled] to=${to} subject=${subject}\n${text}`); } };
   }
   const transport = nodemailer.createTransport({
     host: smtp.host,
@@ -18,7 +19,7 @@ export function createMailer(smtp, log = console, { allowPrivate = false } = {})
       try {
         await transport.sendMail({ from: smtp.from, to, subject, text });
       } catch (err) {
-        log.error(`mail to ${to} failed: ${err.message}`);
+        log.error('mail delivery failed', { error: err.message });
       }
     },
   };

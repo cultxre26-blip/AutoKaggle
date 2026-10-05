@@ -9,6 +9,7 @@
   },
   "scripts": {
     "start": "node src/server.js",
+    "backup": "node scripts/backup.js",
     "test": "node --test --test-force-exit --test-concurrency=1 test/*.test.js"
   },
   "dependencies": {

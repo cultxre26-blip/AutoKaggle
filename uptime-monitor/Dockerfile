@@ -4,6 +4,7 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci --omit=dev
 COPY src ./src
+COPY scripts ./scripts
 COPY public ./public
 RUN mkdir -p /data && chown -R node:node /data /app
 ENV DATABASE_PATH=/data/pingwatch.db

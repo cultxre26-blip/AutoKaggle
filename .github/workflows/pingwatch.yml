@@ -1,0 +1,28 @@
+name: PingWatch CI
+on:
+  push:
+    paths: ['uptime-monitor/**', '.github/workflows/pingwatch.yml']
+  pull_request:
+    paths: ['uptime-monitor/**', '.github/workflows/pingwatch.yml']
+defaults:
+  run:
+    working-directory: uptime-monitor
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: uptime-monitor/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm audit --audit-level=high
+  docker:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t pingwatch uptime-monitor
