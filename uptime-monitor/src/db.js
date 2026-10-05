@@ -51,6 +51,12 @@ CREATE TABLE IF NOT EXISTS incidents (
   resolved_at INTEGER,
   reason TEXT
 );
+CREATE TABLE IF NOT EXISTS tokens (
+  token_hash TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  purpose TEXT NOT NULL,
+  expires_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS webhook_events (
   id TEXT PRIMARY KEY,
   received_at INTEGER NOT NULL
@@ -61,6 +67,7 @@ const COLUMNS = [
   ['sites', 'keyword', 'TEXT'],
   ['users', 'alert_webhook_url', 'TEXT'],
   ['incidents', 'diagnosis_code', 'TEXT'],
+  ['users', 'email_verified', 'INTEGER NOT NULL DEFAULT 0'],
 ];
 
 function addMissingColumns(db) {

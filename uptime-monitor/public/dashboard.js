@@ -5,6 +5,7 @@ async function render() {
   if (!me) return;
   document.getElementById('who').textContent = me.email;
   document.querySelector('#hookForm input').value = me.alertWebhookUrl;
+  document.getElementById('verifyBox').hidden = me.emailVerified;
   const pb = document.getElementById('planBox');
   pb.replaceChildren(el('div', { class: 'row' },
     el('span', {}, `Plan: ${me.limits.name} (${me.limits.maxSites} site${me.limits.maxSites > 1 ? 's' : ''})`)));
@@ -76,6 +77,10 @@ document.getElementById('hookForm').onsubmit = async (e) => {
   e.preventDefault();
   try { await api('/me', 'PATCH', { alertWebhookUrl: new FormData(e.target).get('alertWebhookUrl') }); document.getElementById('hookErr').textContent = 'Saved'; }
   catch (err) { document.getElementById('hookErr').textContent = err.message; }
+};
+document.getElementById('resend').onclick = async () => {
+  try { await api('/verify/resend', 'POST', {}); document.getElementById('resendMsg').textContent = 'Sent. Check your inbox.'; }
+  catch (err) { document.getElementById('resendMsg').textContent = err.message; }
 };
 document.getElementById('logout').onclick = async () => { await api('/logout', 'POST', {}); location.href = '/'; };
 document.getElementById('deleteAcct').onclick = async () => {

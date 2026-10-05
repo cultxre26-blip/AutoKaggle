@@ -4,6 +4,7 @@ A small uptime and SSL-expiry monitor sold as a monthly subscription. Node 22, E
 
 ## What it does
 - Sign up and sign in (scrypt password hashes, hashed server-side session tokens, HttpOnly SameSite cookies).
+- Email verification (required before adding sites, which also stops the service being used to probe arbitrary URLs by throwaway accounts) and password reset. Links are single-use, hashed at rest, and expire after 24 hours (verify) or 1 hour (reset). Resetting signs the user out everywhere. The forgot-password endpoint never reveals whether an email has an account.
 - Monitor URLs on a schedule. A site is marked down after 2 consecutive failures, then one alert email is sent; a recovery email follows.
 - SSL certificate expiry warnings at 14, 7 and 3 days, re-armed after renewal.
 - Failure diagnosis: every failure is mapped to a plain-English cause and a suggested fix (DNS, refused, timeout, expired or untrusted certificate, 5xx, 404, blocked, missing content). It appears in alert emails, check results and the incident list.
@@ -32,7 +33,7 @@ Without `STRIPE_SECRET_KEY` billing is disabled; without `SMTP_HOST` alerts are 
 4. Put it behind HTTPS (a reverse proxy or platform TLS). The app trusts one proxy hop for client IPs.
 5. Mount a persistent volume for `DATABASE_PATH` and back it up (SQLite, WAL mode). Run a single instance; the scheduler runs in-process.
 6. Replace `public/terms.html` and `public/privacy.html` with lawyer-reviewed text.
-7. Not included yet: email verification, password reset, and per-tenant rate limiting beyond sign-in. Add these before heavy public traffic.
+7. Not included yet: per-account API rate limiting beyond sign-in and a CAPTCHA on signup. Add these before heavy public traffic.
 
 ## Security notes
 - Monitored URLs are validated and DNS is resolved through a guard that rejects private, loopback and link-local addresses (SSRF and DNS-rebinding protection). Redirects are not followed. `ALLOW_PRIVATE_TARGETS=1` disables this and is for local testing only.

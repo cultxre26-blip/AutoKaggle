@@ -36,6 +36,7 @@ test('free plan limits sites; sites are isolated per user', async () => {
   const srv = await listen(ctx.app);
   const a = client(srv.base);
   await a('/api/signup', 'POST', creds);
+  ctx.db.exec('UPDATE users SET email_verified = 1');
   const first = await a('/api/sites', 'POST', { name: 'One', url: 'https://example.com' });
   assert.equal(first.status, 201);
   assert.equal((await a('/api/sites', 'POST', { name: 'Two', url: 'https://example.org' })).status, 402);
@@ -53,6 +54,7 @@ test('site validation blocks private targets when not allowed', async () => {
   const srv = await listen(ctx.app);
   const c = client(srv.base);
   await c('/api/signup', 'POST', creds);
+  ctx.db.exec('UPDATE users SET email_verified = 1');
   for (const url of ['http://127.0.0.1/', 'http://169.254.169.254/latest', 'http://[::1]/', 'ftp://example.com', 'javascript:alert(1)', 'https://u:p@example.com']) {
     assert.equal((await c('/api/sites', 'POST', { name: 'x', url })).status, 400, url);
   }
@@ -64,6 +66,7 @@ test('public status page exposes no owner or URL data', async () => {
   const srv = await listen(ctx.app);
   const c = client(srv.base);
   await c('/api/signup', 'POST', creds);
+  ctx.db.exec('UPDATE users SET email_verified = 1');
   const site = (await c('/api/sites', 'POST', { name: 'Shop', url: 'https://example.com' })).body;
   const pub = await client(srv.base)(`/api/status/${site.slug}`);
   assert.deepEqual(Object.keys(pub.body).sort(), ['lastCheckedAt', 'name', 'status', 'uptime30d']);
@@ -76,6 +79,7 @@ test('account deletion removes user data', async () => {
   const srv = await listen(ctx.app);
   const c = client(srv.base);
   await c('/api/signup', 'POST', creds);
+  ctx.db.exec('UPDATE users SET email_verified = 1');
   await c('/api/sites', 'POST', { name: 'Shop', url: 'https://example.com' });
   assert.equal((await c('/api/me', 'DELETE')).status, 200);
   assert.equal(ctx.db.prepare('SELECT COUNT(*) n FROM sites').get().n, 0);

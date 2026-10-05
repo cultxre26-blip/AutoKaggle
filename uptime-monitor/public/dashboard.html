@@ -1,6 +1,7 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Dashboard — PingWatch</title><link rel="stylesheet" href="/style.css"></head><body><main>
+<title>Dashboard — PingWatch</title><link rel="icon" href="data:,"><link rel="stylesheet" href="/style.css"></head><body><main>
 <header class="nav"><span class="brand">PingWatch</span><span><span class="muted" id="who"></span> <button class="secondary" id="logout">Sign out</button></span></header>
+<div class="card" id="verifyBox" hidden><span>Confirm your email to start adding sites. </span><button class="secondary" id="resend">Resend confirmation email</button> <span class="muted" id="resendMsg"></span></div>
 <div class="card" id="planBox"></div>
 <div class="card"><h3>Add a site</h3><form id="addForm"><label>Name<input name="name" required maxlength="80"></label>
 <label>URL<input name="url" type="url" placeholder="https://example.com" required></label>

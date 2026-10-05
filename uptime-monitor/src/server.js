@@ -7,7 +7,7 @@ import { openDb } from './db.js';
 import { PLANS, planFor } from './plans.js';
 import {
   COOKIE, hashPassword, verifyPassword, createSession, userForSession, destroySession,
-  cookieHeader, parseCookies, validEmail,
+  cookieHeader, parseCookies, validEmail, createToken, consumeToken,
 } from './auth.js';
 import { parseTarget } from './ssrf.js';
 import { rateLimit } from './rateLimit.js';
@@ -30,7 +30,7 @@ export function createApp({ config, db, mailer, billing }) {
       'X-Content-Type-Options': 'nosniff',
       'X-Frame-Options': 'DENY',
       'Referrer-Policy': 'same-origin',
-      'Content-Security-Policy': "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-ancestors 'none'",
+      'Content-Security-Policy': "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; frame-ancestors 'none'",
     });
     next();
   });
@@ -67,7 +67,7 @@ export function createApp({ config, db, mailer, billing }) {
 
   const publicUser = (u) => {
     const plan = planFor(u);
-    return { email: u.email, alertWebhookUrl: u.alert_webhook_url || '', plan: u.plan, subscriptionStatus: u.subscription_status, limits: plan, billingEnabled: billing.enabled };
+    return { email: u.email, emailVerified: Boolean(u.email_verified), alertWebhookUrl: u.alert_webhook_url || '', plan: u.plan, subscriptionStatus: u.subscription_status, limits: plan, billingEnabled: billing.enabled };
   };
 
   app.get('/healthz', (req, res) => {
@@ -76,6 +76,12 @@ export function createApp({ config, db, mailer, billing }) {
   });
 
   app.get('/api/plans', (req, res) => res.json(PLANS));
+
+  const sendVerification = (userId, email) => mailer.send({
+    to: email,
+    subject: 'Confirm your PingWatch email',
+    text: `Confirm your email to start monitoring sites:\n\n${config.appUrl}/verify.html?token=${createToken(db, userId, 'verify')}\n\nThis link expires in 24 hours. If you did not sign up, ignore this email.`,
+  });
 
   app.post('/api/signup', authLimiter, (req, res) => {
     const { email, password } = req.body || {};
@@ -87,13 +93,53 @@ export function createApp({ config, db, mailer, billing }) {
     try {
       const { lastInsertRowid } = db.prepare('INSERT INTO users (email, password_hash, created_at) VALUES (?, ?, ?)')
         .run(normalized, hashPassword(password), Date.now());
-      const token = createSession(db, Number(lastInsertRowid));
+      const userId = Number(lastInsertRowid);
+      const token = createSession(db, userId);
       res.set('Set-Cookie', cookieHeader(token, { secure: config.secureCookies }));
+      sendVerification(userId, normalized);
       res.status(201).json({ ok: true });
     } catch (err) {
       if (String(err.message).includes('UNIQUE')) return res.status(409).json({ error: 'An account with that email already exists' });
       throw err;
     }
+  });
+
+  app.post('/api/verify', authLimiter, (req, res) => {
+    const userId = consumeToken(db, req.body?.token, 'verify');
+    if (!userId) return res.status(400).json({ error: 'This link is invalid or has expired. Request a new one from your dashboard.' });
+    db.prepare('UPDATE users SET email_verified = 1 WHERE id = ?').run(userId);
+    res.json({ ok: true });
+  });
+
+  app.post('/api/verify/resend', requireUser, rateLimit({ windowMs: 15 * 60 * 1000, max: 5 }), (req, res) => {
+    if (!req.user.email_verified) sendVerification(req.user.id, req.user.email);
+    res.json({ ok: true });
+  });
+
+  // Always answers the same way so the endpoint cannot be used to discover which emails have accounts.
+  app.post('/api/password/forgot', authLimiter, (req, res) => {
+    const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+    const user = email ? db.prepare('SELECT id, email FROM users WHERE email = ?').get(email) : null;
+    if (user) {
+      mailer.send({
+        to: user.email,
+        subject: 'Reset your PingWatch password',
+        text: `Reset your password:\n\n${config.appUrl}/reset.html?token=${createToken(db, user.id, 'reset')}\n\nThis link expires in 1 hour. If you did not ask for this, ignore this email.`,
+      });
+    }
+    res.json({ ok: true });
+  });
+
+  app.post('/api/password/reset', authLimiter, (req, res) => {
+    const password = req.body?.password;
+    if (typeof password !== 'string' || password.length < 10 || password.length > 200) {
+      return res.status(400).json({ error: 'Password must be 10 to 200 characters' });
+    }
+    const userId = consumeToken(db, req.body?.token, 'reset');
+    if (!userId) return res.status(400).json({ error: 'This reset link is invalid or has expired. Request a new one.' });
+    db.prepare('UPDATE users SET password_hash = ?, email_verified = 1 WHERE id = ?').run(hashPassword(password), userId);
+    db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId); // sign out everywhere
+    res.json({ ok: true });
   });
 
   app.post('/api/login', authLimiter, (req, res) => {
@@ -140,6 +186,7 @@ export function createApp({ config, db, mailer, billing }) {
   });
 
   app.post('/api/sites', requireUser, (req, res) => {
+    if (!req.user.email_verified) return res.status(403).json({ error: 'Confirm your email address before adding sites. Check your inbox.', code: 'email_unverified' });
     const plan = planFor(req.user);
     const { name, url, intervalSec, keyword } = req.body || {};
     if (keyword != null && (typeof keyword !== 'string' || keyword.length > 100)) return res.status(400).json({ error: 'Keyword must be text of at most 100 characters' });

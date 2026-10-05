@@ -59,3 +59,23 @@ export function parseCookies(header = '') {
 export function validEmail(email) {
   return typeof email === 'string' && email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
+
+// One-time tokens for email verification and password reset. Only the hash is stored.
+export const TOKEN_TTL = { verify: 24 * 3600 * 1000, reset: 3600 * 1000 };
+
+export function createToken(db, userId, purpose, now = Date.now()) {
+  db.prepare('DELETE FROM tokens WHERE user_id = ? AND purpose = ?').run(userId, purpose);
+  const token = randomBytes(32).toString('base64url');
+  db.prepare('INSERT INTO tokens (token_hash, user_id, purpose, expires_at) VALUES (?, ?, ?, ?)')
+    .run(sha256(token), userId, purpose, now + TOKEN_TTL[purpose]);
+  return token;
+}
+
+// Returns the user id and deletes the token, or null if unknown, expired or already used.
+export function consumeToken(db, token, purpose, now = Date.now()) {
+  if (typeof token !== 'string' || !token) return null;
+  const hash = sha256(token);
+  const row = db.prepare('SELECT user_id FROM tokens WHERE token_hash = ? AND purpose = ? AND expires_at > ?').get(hash, purpose, now);
+  const deleted = db.prepare('DELETE FROM tokens WHERE token_hash = ?').run(hash);
+  return row && deleted.changes === 1 ? row.user_id : null;
+}

@@ -70,6 +70,7 @@ test('API: keyword, webhook setting, manual check and incident details', async (
   const app = await listen(ctx.app);
   const c = client(app.base);
   await c('/api/signup', 'POST', creds);
+  ctx.db.exec('UPDATE users SET email_verified = 1');
   assert.equal((await c('/api/me', 'PATCH', { alertWebhookUrl: 'ftp://x' })).status, 400);
   const saved = await c('/api/me', 'PATCH', { alertWebhookUrl: 'https://hooks.example/abc' });
   assert.equal(saved.body.alertWebhookUrl, 'https://hooks.example/abc');
