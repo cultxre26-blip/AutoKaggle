@@ -1,0 +1,10 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dashboard — PingWatch</title><link rel="stylesheet" href="/style.css"></head><body><main>
+<header class="nav"><span class="brand">PingWatch</span><span><span class="muted" id="who"></span> <button class="secondary" id="logout">Sign out</button></span></header>
+<div class="card" id="planBox"></div>
+<div class="card"><h3>Add a site</h3><form id="addForm"><label>Name<input name="name" required maxlength="80"></label>
+<label>URL<input name="url" type="url" placeholder="https://example.com" required></label>
+<p class="err" id="addErr"></p><button type="submit">Add site</button></form></div>
+<div id="sites"></div>
+<p><button class="danger" id="deleteAcct">Delete my account</button></p>
+</main><script src="/app.js"></script><script src="/dashboard.js"></script></body></html>
