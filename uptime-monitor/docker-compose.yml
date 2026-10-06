@@ -1,0 +1,46 @@
+# Production stack: the app, automatic HTTPS via Caddy, and daily database backups.
+# Run with: docker compose --env-file .env up -d --build
+services:
+  app:
+    build: .
+    image: pingwatch:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      DATABASE_PATH: /data/pingwatch.db
+    volumes:
+      - data:/data
+    expose: ["3000"]
+    deploy: { replicas: 1 }   # the scheduler runs in-process; do not scale out
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on: [app]
+    ports: ["80:80", "443:443"]
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+
+  backup:
+    image: pingwatch:latest
+    depends_on: [app]
+    restart: unless-stopped
+    environment:
+      DATABASE_PATH: /data/pingwatch.db
+    volumes:
+      - data:/data:ro
+      - backups:/backups
+    user: root
+    healthcheck:
+      disable: true
+    # Retry every minute until the database exists and a backup succeeds, then once a day.
+    entrypoint: ["sh", "-c", "while true; do if node --disable-warning=ExperimentalWarning scripts/backup.js /backups 14; then sleep 86400; else sleep 60; fi; done"]
+
+volumes:
+  data:
+  caddy_data:
+  backups:

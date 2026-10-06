@@ -1,0 +1,23 @@
+{
+  "name": "pingwatch",
+  "version": "1.0.0",
+  "description": "Uptime and SSL-expiry monitor sold as a monthly subscription",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "backup": "node scripts/backup.js",
+    "test": "node --test --test-force-exit --test-concurrency=1 test/*.test.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "nodemailer": "^10.0.15",
+    "stripe": "^17.5.0"
+  },
+  "devDependencies": {
+    "smtp-server": "^3.19.17"
+  }
+}
