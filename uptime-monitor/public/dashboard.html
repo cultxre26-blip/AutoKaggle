@@ -1,13 +1,31 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Dashboard — PingWatch</title><link rel="icon" href="data:,"><link rel="stylesheet" href="/style.css"></head><body><main>
-<header class="nav"><span class="brand">PingWatch</span><span><span class="muted" id="who"></span> <button class="secondary" id="logout">Sign out</button></span></header>
-<div class="card" id="verifyBox" hidden><span>Confirm your email to start adding sites. </span><button class="secondary" id="resend">Resend confirmation email</button> <span class="muted" id="resendMsg"></span></div>
-<div class="card" id="planBox"></div>
-<div class="card"><h3>Add a site</h3><form id="addForm"><label>Name<input name="name" required maxlength="80"></label>
-<label>URL<input name="url" type="url" placeholder="https://example.com" required></label>
-<label>Expected text on the page (optional — alerts you if the page loads but this text is missing)<input name="keyword" maxlength="100"></label>
-<p class="err" id="addErr"></p><button type="submit">Add site</button></form></div>
-<div class="card"><h3>Alert webhook</h3><p class="muted">Also send alerts to Slack, Discord or any URL that accepts JSON.</p><form id="hookForm"><input name="alertWebhookUrl" type="url" placeholder="https://hooks.slack.com/services/..."><p class="err" id="hookErr"></p><button type="submit" class="secondary">Save webhook</button></form></div>
-<div id="sites"></div>
-<p><button class="danger" id="deleteAcct">Delete my account</button></p>
-</main><script src="/app.js"></script><script src="/dashboard.js"></script></body></html>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Dashboard — PingWatch</title><link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%278%27 fill=%27%234f46e5%27/%3E%3Cpath d=%27M5 17h6l3-8 4 15 3-7h6%27 fill=%27none%27 stroke=%27%23fff%27 stroke-width=%272.4%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27/%3E%3C/svg%3E"><link rel="stylesheet" href="/style.css"></head><body>
+<div class="app-bar"><div class="container nav"><a class="brand" href="/"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#4f46e5"/><path d="M5 17h6l3-8 4 15 3-7h6" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>PingWatch</a><div class="row" style="gap:12px"><span class="muted small" id="who"></span><button class="btn secondary sm" id="logout">Sign out</button></div></div></div>
+<main class="container">
+  <div class="page-title"><div><h1>Monitors</h1><p class="muted" style="margin:4px 0 0" id="planLine"></p></div><div class="actions" id="planActions"></div></div>
+  <div class="banner" id="verifyBox" hidden><span><strong>Confirm your email</strong> to start adding monitors. We sent a link when you signed up.</span><span><button class="btn secondary sm" id="resend">Resend email</button> <span class="muted small" id="resendMsg" role="status"></span></span></div>
+  <div class="stats" id="stats"></div>
+
+  <div class="card" id="addCard">
+    <h2 style="font-size:1.15rem">Add a monitor</h2>
+    <form id="addForm"><div class="form-grid">
+      <label class="field">Name<input name="name" required maxlength="80" placeholder="Online shop"></label>
+      <label class="field">URL<input name="url" type="url" required placeholder="https://example.com"></label>
+      <label class="field">Required text <span class="muted" style="font-weight:400">(optional)</span><input name="keyword" maxlength="100" placeholder="Add to cart"><span class="hint">Alert me if the page loads but this text is missing.</span></label>
+    </div>
+    <p class="err" id="addErr" role="alert"></p><button class="btn" type="submit">Add monitor</button></form>
+  </div>
+
+  <h2 class="section-title">Your sites</h2>
+  <div id="sites"></div>
+
+  <h2 class="section-title">Alert webhook</h2>
+  <div class="card"><p class="muted small">Also send alerts to Slack, Discord or any URL that accepts JSON. Email alerts are always sent.</p>
+    <form id="hookForm"><label class="field"><span class="sr-only">Webhook URL</span><input name="alertWebhookUrl" type="url" placeholder="https://hooks.slack.com/services/…"></label>
+    <p class="small" id="hookErr" role="status"></p><button type="submit" class="btn secondary">Save webhook</button></form></div>
+
+  <h2 class="section-title">Your data</h2>
+  <div class="card"><p class="muted small">Download everything we hold about your account, or delete your account and all monitoring data permanently.</p>
+    <div class="danger-zone"><a class="btn secondary" href="/api/me/export" download>Download my data</a><button class="btn danger" id="deleteAcct">Delete account</button></div></div>
+</main>
+<footer class="container footer"><div class="row"><span class="small">&copy; <span id="year"></span> <span data-company></span></span><nav class="row" style="gap:20px"><a href="/terms.html">Terms</a><a href="/privacy.html">Privacy</a><a data-email href="#">Support</a></nav></div></footer>
+<script src="/app.js"></script><script src="/dashboard.js"></script></body></html>

@@ -1,4 +1,11 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Status — PingWatch</title><link rel="icon" href="data:,"><link rel="stylesheet" href="/style.css"></head><body><main>
-<div class="card"><h1 id="name">Status</h1><p id="state" class="muted">Loading…</p><p id="uptime" class="muted"></p></div>
-</main><script src="/app.js"></script><script src="/status.js"></script></body></html>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Status — PingWatch</title><link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%278%27 fill=%27%234f46e5%27/%3E%3Cpath d=%27M5 17h6l3-8 4 15 3-7h6%27 fill=%27none%27 stroke=%27%23fff%27 stroke-width=%272.4%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27/%3E%3C/svg%3E"><link rel="stylesheet" href="/style.css"></head><body class="center-page"><header class="container nav"><a class="brand" href="/"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#4f46e5"/><path d="M5 17h6l3-8 4 15 3-7h6" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>PingWatch</a></header>
+<main class="center-main container"><div class="card" style="max-width:640px">
+  <div class="status-hero"><span class="status-icon" id="icon"></span><div><h1 id="name" style="margin:0;font-size:1.5rem">Status</h1><p id="state" class="muted" style="margin:2px 0 0" role="status">Loading…</p></div></div>
+  <hr style="border:0;border-top:1px solid var(--border);margin:22px 0">
+  <div class="row"><strong>Last 30 days</strong><span class="muted" id="uptime"></span></div>
+  <div class="bars" id="bars" aria-hidden="true"></div>
+  <div class="bars-legend"><span>30 days ago</span><span>Today</span></div>
+  <p class="muted small" id="checked" style="margin:18px 0 0"></p>
+</div></main>
+<footer class="container footer"><span class="small">Monitored by <a href="/">PingWatch</a></span></footer>
+<script src="/app.js"></script><script src="/status.js"></script></body></html>

@@ -232,7 +232,18 @@ export function createApp({ config, db, mailer, billing, verifyCaptcha = default
   });
 
   app.get('/api/sites', requireUser, (req, res) => {
-    res.json(db.prepare('SELECT * FROM sites WHERE user_id = ? ORDER BY id').all(req.user.id).map(siteView));
+    const since = Date.now() - 24 * 3600 * 1000;
+    const recent = db.prepare('SELECT ok, response_ms FROM checks WHERE site_id = ? AND checked_at >= ? ORDER BY checked_at DESC LIMIT 60');
+    res.json(db.prepare('SELECT * FROM sites WHERE user_id = ? ORDER BY id').all(req.user.id).map((s) => {
+      const rows = recent.all(s.id, since).reverse();
+      const okRows = rows.filter((r) => r.ok && r.response_ms != null);
+      return {
+        ...siteView(s),
+        uptime24h: rows.length ? Math.round((rows.filter((r) => r.ok).length / rows.length) * 1000) / 10 : null,
+        avgMs: okRows.length ? Math.round(okRows.reduce((a, r) => a + r.response_ms, 0) / okRows.length) : null,
+        spark: rows.map((r) => (r.ok ? r.response_ms : null)),
+      };
+    }));
   });
 
   app.post('/api/sites', requireUser, (req, res) => {
@@ -299,7 +310,16 @@ export function createApp({ config, db, mailer, billing, verifyCaptcha = default
     if (!s) return res.status(404).json({ error: 'Not found' });
     const since = Date.now() - 30 * 24 * 3600 * 1000;
     const stats = db.prepare('SELECT COUNT(*) AS total, COALESCE(SUM(ok), 0) AS up FROM checks WHERE site_id = ? AND checked_at >= ?').get(s.id, since);
-    res.json({ name: s.name, status: s.status, lastCheckedAt: s.last_checked_at, uptime30d: stats.total ? Math.round((stats.up / stats.total) * 10000) / 100 : null });
+    const DAY = 24 * 3600 * 1000;
+    const today = Math.floor(Date.now() / DAY);
+    const perDay = db.prepare('SELECT CAST(checked_at / 86400000 AS INTEGER) AS day, COUNT(*) AS total, SUM(ok) AS up FROM checks WHERE site_id = ? AND checked_at >= ? GROUP BY day').all(s.id, since);
+    const byDay = new Map(perDay.map((d) => [Number(d.day), d]));
+    const days = Array.from({ length: 30 }, (_, i) => {
+      const day = today - 29 + i;
+      const d = byDay.get(day);
+      return { date: new Date(day * DAY).toISOString().slice(0, 10), uptime: d ? Math.round((d.up / d.total) * 1000) / 10 : null };
+    });
+    res.json({ name: s.name, status: s.status, lastCheckedAt: s.last_checked_at, uptime30d: stats.total ? Math.round((stats.up / stats.total) * 10000) / 100 : null, days });
   });
   app.get('/status/:slug', (req, res) => res.sendFile(join(publicDir, 'status.html')));
 

@@ -69,7 +69,8 @@ test('public status page exposes no owner or URL data', async () => {
   ctx.db.exec('UPDATE users SET email_verified = 1');
   const site = (await c('/api/sites', 'POST', { name: 'Shop', url: 'https://example.com' })).body;
   const pub = await client(srv.base)(`/api/status/${site.slug}`);
-  assert.deepEqual(Object.keys(pub.body).sort(), ['lastCheckedAt', 'name', 'status', 'uptime30d']);
+  assert.deepEqual(Object.keys(pub.body).sort(), ['days', 'lastCheckedAt', 'name', 'status', 'uptime30d']);
+  assert.equal(pub.body.days.length, 30);
   assert.equal((await client(srv.base)('/api/status/nope')).status, 404);
   await srv.close();
 });
